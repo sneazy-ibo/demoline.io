@@ -1,0 +1,115 @@
+package main
+
+import (
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+type PowerlineNetwork struct {
+	region     string
+	remoteHost string
+	roomNumber int
+	roomID     int
+	port       int
+}
+
+func NewPowerlineNetwork(region string) *PowerlineNetwork {
+	return &PowerlineNetwork{
+		region: region,
+	}
+}
+
+func (pn *PowerlineNetwork) getServerInfo() (map[string]interface{}, error) {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	req, err := http.NewRequest("PUT", "https://master.powerline.io/", strings.NewReader(pn.region))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	pn.parseServerResponse(string(body))
+	return pn.getRoomData(), nil
+}
+
+func (pn *PowerlineNetwork) parseServerResponse(response string) {
+	parts := strings.Split(response, "!")
+	host := parts[0]
+	if len(parts) > 1 {
+		pn.roomID, _ = strconv.Atoi(parts[1])
+	}
+
+	hostParts := strings.Split(host, "/")
+	pn.remoteHost = hostParts[0]
+	if len(hostParts) > 1 {
+		pn.roomNumber, _ = strconv.Atoi(hostParts[1])
+	}
+
+	if pn.roomNumber > 0 {
+		pn.port = 8080 + pn.roomNumber
+	} else {
+		pn.port, _ = strconv.Atoi(strings.Split(pn.remoteHost, ":")[1])
+	}
+}
+
+func (pn *PowerlineNetwork) getRoomData() map[string]interface{} {
+	return map[string]interface{}{
+		"region":     pn.region,
+		"remoteHost": pn.remoteHost,
+		"roomNumber": pn.roomNumber,
+		"roomID":     pn.roomID,
+		"port":       pn.port,
+		"fullAddress": fmt.Sprintf("ws://%s:%d",
+			strings.Split(pn.remoteHost, ":")[0], pn.port),
+	}
+}
+
+func getAllRegionsData() {
+	regions := []string{"US", "DE", "JP"} // America, Europe, Asia
+	var wg sync.WaitGroup
+	results := make([]map[string]interface{}, len(regions))
+
+	for i, region := range regions {
+		wg.Add(1)
+		go func(i int, region string) {
+			defer wg.Done()
+			network := NewPowerlineNetwork(region)
+			data, err := network.getServerInfo()
+			if err != nil {
+				fmt.Printf("Error getting data for %s: %v\n", region, err)
+				return
+			}
+			results[i] = data
+		}(i, region)
+	}
+
+	wg.Wait()
+
+	allData, _ := json.MarshalIndent(results, "", "  ")
+	fmt.Println("All Regions Data:", string(allData))
+}
+
+func main() {
+	getAllRegionsData()
+}

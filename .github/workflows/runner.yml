@@ -1,0 +1,29 @@
+name: Run Powerline Server Status Script
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.21'
+
+    - name: Install dependencies
+      run: |
+        go mod download
+
+    - name: Run script
+      env:
+        DISCORD_WEBHOOK_URLS: ${{ secrets.DISCORD_WEBHOOK_URLS }}
+        DISCORD_MESSAGE_IDS: ${{ secrets.DISCORD_MESSAGE_IDS }}
+        DEBUG_MODE: 'false'
+      run: |
+        go run fetcher.go
